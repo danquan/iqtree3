@@ -31,10 +31,20 @@ void MPIHelper::init(int argc, char *argv[]) {
     setNumTreeReceived(0);
     setNumTreeSent(0);
     setNumNNISearch(0);
+
+    char processor_name[MPI_MAX_PROCESSOR_NAME];
+    int name_len;
+    MPI_Get_processor_name(processor_name, &name_len);
+    printf("[Rank %d] Running on Node: %s\n", getProcessID(), processor_name);
 #endif
 }
 
 void MPIHelper::finalize() {
+    if (models != nullptr) {
+        delete models;
+        models = nullptr;
+    }
+
 #ifdef _IQTREE_MPI
     MPI_Finalize();
 #endif
@@ -109,17 +119,42 @@ bool MPIHelper::gotMessage() {
 
 
 #ifdef _IQTREE_MPI
-void MPIHelper::sendString(string &str, int dest, int tag) {
-    char *buf = (char*)str.c_str();
-    int len = str.length()+1;
-    MPI_Send(buf, len, MPI_CHAR, dest, tag, MPI_COMM_WORLD);
+MPI_Request MPIHelper::sendBufferAsync(char* buf, int len, int dest, int tag) {
+    MPI_Request request;
+    MPI_Isend(buf, len, MPI_CHAR, dest, tag, MPI_COMM_WORLD, &request);
+    // We can choose to wait for the request to complete or not depending on the use case.
+    // For now, we will not wait here to allow for true asynchronous behavior.
+    return request;
 }
 
-void MPIHelper::sendCheckpoint(Checkpoint *ckp, int dest) {
+void MPIHelper::waitBufferSend(MPI_Request& request) {
+    double endTime = getRealTime();
+}
+
+MPI_Request MPIHelper::sendCheckpointAsync(Checkpoint *ckp, char *buffer, int dest, int tag) {
     stringstream ss;
     ckp->dump(ss);
     string str = ss.str();
-    sendString(str, dest, TREE_TAG);
+    int len = str.length() + 1;
+    memcpy(buffer, str.c_str(), len);
+    return sendBufferAsync(buffer, len, dest, tag);
+}
+
+void MPIHelper::sendString(string &str, int dest, int tag) {
+    char *buf = (char*)str.c_str();
+    int len = str.length()+1;
+
+    double startTime = getRealTime();
+    MPI_Send(buf, len, MPI_CHAR, dest, tag, MPI_COMM_WORLD);
+    double endTime = getRealTime();
+    // fprintf(stderr, "Process %d: Sent message of length %d to process %d in %.6f seconds\n", getProcessID(), len, dest, endTime - startTime);
+}
+
+void MPIHelper::sendCheckpoint(Checkpoint *ckp, int dest, int tag) {
+    stringstream ss;
+    ckp->dump(ss);
+    string str = ss.str();
+    sendString(str, dest, tag);
 }
 
 
@@ -136,9 +171,9 @@ int MPIHelper::recvString(string &str, int src, int tag) {
     return status.MPI_SOURCE;
 }
 
-int MPIHelper::recvCheckpoint(Checkpoint *ckp, int src) {
+int MPIHelper::recvCheckpoint(Checkpoint *ckp, int src, int tag) {
     string str;
-    int proc = recvString(str, src, TREE_TAG);
+    int proc = recvString(str, src, tag);
     stringstream ss(str);
     ckp->load(ss);
     return proc;
@@ -219,3 +254,98 @@ MPIHelper::~MPIHelper() {
 //    cleanUpMessages();
 }
 
+MPI_SharedWindow::MPI_SharedWindow(int num_elements)
+    :shared_memory(nullptr), num_elements(num_elements), depth_lock(0) {
+#ifdef _IQTREE_MPI
+    window = MPI_WIN_NULL;
+
+    // Only the Master allocates the actual storage.
+    // Workers allocate 0 bytes; they will access Master's memory remotely.
+    MPI_Aint size = 0;
+    if (MPIHelper::getInstance().isMaster()) {
+        size = (MPI_Aint)num_elements * sizeof(double);
+    }
+
+    // MPI_Win_allocate creates a window that is accessible across the network (nodes).
+    MPI_Win_allocate(size, sizeof(double), MPI_INFO_NULL, MPI_COMM_WORLD, &shared_memory, &window);
+
+    // Master can access 'shared_memory' directly as a local pointer.
+    if (MPIHelper::getInstance().isMaster()) {
+        // Initialize shared memory
+        for (int i = 0; i < num_elements; i++) {
+            shared_memory[i] = 0;
+        }
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+#else
+    shared_memory = new double[num_elements];
+    for (int i = 0; i < num_elements; i++) {
+        shared_memory[i] = 0;
+    }
+#endif
+}
+
+MPI_SharedWindow::~MPI_SharedWindow() {
+#ifdef _IQTREE_MPI
+    if (window != MPI_WIN_NULL) {
+        MPI_Win_free(&window);  // Free the window before MPI_Finalize
+    }
+#else
+    delete [] shared_memory;
+#endif
+}
+
+double MPI_SharedWindow::get_shared_memory(int idx) {
+    assert(idx < num_elements);
+    double ret;
+#ifdef _IQTREE_MPI
+    lock();
+    MPI_Get(&ret, 1, MPI_DOUBLE, PROC_MASTER, idx, 1, MPI_DOUBLE, window);
+    unlock();
+#else
+    ret = shared_memory[idx];
+#endif
+    return ret;
+}
+
+void MPI_SharedWindow::set_shared_memory(int idx, double value) {
+    assert(idx < num_elements);
+#ifdef _IQTREE_MPI
+    lock();
+    MPI_Put(&value, 1, MPI_DOUBLE, PROC_MASTER, idx, 1, MPI_DOUBLE, window);
+    unlock();
+#else
+    shared_memory[idx] = value;
+#endif
+}
+
+int MPI_SharedWindow::get_and_increment(int idx) {
+    assert(idx < num_elements);
+    double ret;
+#ifdef _IQTREE_MPI
+    double one = 1;
+    lock();
+    MPI_Fetch_and_op(&one, &ret, MPI_DOUBLE, PROC_MASTER, idx, MPI_SUM, window);
+    unlock();
+#else
+    ret = shared_memory[idx];
+    shared_memory[idx] += 1;
+#endif
+
+    return ret;
+}
+
+void MPI_SharedWindow::lock() {
+#ifdef _IQTREE_MPI
+    if (!depth_lock++)
+        MPI_Win_lock(MPI_LOCK_EXCLUSIVE, PROC_MASTER, 0, window);
+#endif
+}
+
+void MPI_SharedWindow::unlock() {
+#ifdef _IQTREE_MPI
+    if (!--depth_lock)
+        MPI_Win_unlock(0, window);
+#endif
+}

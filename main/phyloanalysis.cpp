@@ -3465,7 +3465,6 @@ void runTreeReconstruction(Params &params, IQTree* &iqtree) {
 
     /*********************** INITIAL MODEL OPTIMIZATION *****************/
 
-
     if (!iqtree->getModelFactory()) {
         iqtree->initializeModel(params, iqtree->aln->model_name, models_block);
     }
@@ -3475,7 +3474,6 @@ void runTreeReconstruction(Params &params, IQTree* &iqtree) {
 //    iqtree.restoreCheckpoint();
 
     delete models_block;
-
     // UpperBounds analysis. Here, to analyse the initial tree without any tree search or optimization
     /*
     if (params.upper_bound) {
@@ -3723,6 +3721,8 @@ void runTreeReconstruction(Params &params, IQTree* &iqtree) {
     // prune stable taxa
     pruneTaxa(params, *iqtree, pattern_lh, pruned_taxa, linked_name);
 
+    MPIHelper::getInstance().barrier();
+
     /***************************************** DO STOCHASTIC TREE SEARCH *******************************************/
     if (params.min_iterations > 0 && !params.tree_spr) {
         iqtree->doTreeSearch();
@@ -3752,6 +3752,7 @@ void runTreeReconstruction(Params &params, IQTree* &iqtree) {
 //            ((PhyloSuperTree*) iqtree)->mapTrees();
 
     if (!MPIHelper::getInstance().isMaster()) {
+        iqtree->setCurScore(iqtree->computeLikelihood());
         delete[] pattern_lh;
         return;
     }
@@ -4447,7 +4448,6 @@ void runStandardBootstrap(Params &params, Alignment *alignment, IQTree *tree) {
     double start_real_time = getRealTime();
 
     startTreeReconstruction(params, tree, *model_info);
-    
     // 2018-06-21: bug fix: alignment might be changed by -m ...MERGE
     alignment = tree->aln;
     
