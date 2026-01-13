@@ -1445,6 +1445,8 @@ void parseArg(int argc, char *argv[], Params &params) {
     params.num_threads = 1;
     params.num_threads_max = 10000;
     params.openmp_by_model = false;
+    params.mpi_by_model = false;
+    params.consistent_treesearch = false;
     params.model_test_criterion = MTC_BIC;
 //    params.model_test_stop_rule = MTC_ALL;
     params.model_test_sample_size = 0;
@@ -5062,8 +5064,18 @@ void parseArg(int argc, char *argv[], Params &params) {
                 continue;
             }
 
+            if (strcmp(argv[cnt], "--mpi-model") == 0) {
+                params.mpi_by_model = true;
+                continue;
+            }
+
             if (strcmp(argv[cnt], "--thread-site") == 0) {
                 params.openmp_by_model = false;
+                continue;
+            }
+
+            if (strcmp(argv[cnt], "--consistent-ts") == 0) {
+                params.consistent_treesearch = true;
                 continue;
             }
 

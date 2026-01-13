@@ -2347,6 +2347,12 @@ public:
     /** true to parallel ModelFinder by models instead of sites */
     bool openmp_by_model;
 
+    /** true to distribute MPI ModelFinder by models */
+    bool mpi_by_model;
+
+    /** perform new idea for consistent treesearch mpi, using MPI RMA*/
+    bool consistent_treesearch;
+
     /** either MTC_AIC, MTC_AICc, MTC_BIC */
     ModelTestCriterion model_test_criterion;
 

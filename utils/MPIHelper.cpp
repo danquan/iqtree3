@@ -219,3 +219,103 @@ MPIHelper::~MPIHelper() {
 //    cleanUpMessages();
 }
 
+MPI_SharedWindow::MPI_SharedWindow(int num_elements)
+    :shared_memory(nullptr), num_elements(num_elements), depth_lock(0) {
+#ifdef _IQTREE_MPI
+    window = MPI_WIN_NULL;
+    MPI_Info win_info;
+    MPI_Info_create(&win_info);
+
+    // Create shared memory window for all processes
+    MPI_Win_allocate_shared(
+        MPIHelper::getInstance().isMaster() ? sizeof(double) * num_elements : 0, 
+        sizeof(double), win_info, 
+        MPI_COMM_WORLD, 
+        &shared_memory, 
+        &window
+    );
+    MPI_Info_free(&win_info);
+    if (MPIHelper::getInstance().isMaster()) {
+        // Initialize shared memory
+        for (int i = 0; i < num_elements; i++) {
+            shared_memory[i] = 0;
+        }
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    // Map shared memory for other processes
+    if (MPIHelper::getInstance().isWorker()) {
+        MPI_Aint size;
+        int disp_unit;
+        MPI_Win_shared_query(window, 0, &size, &disp_unit, &shared_memory);
+    }
+#else
+    shared_memory = new double[num_elements];
+    for (int i = 0; i < num_elements; i++) {
+        shared_memory[i] = 0;
+    }
+#endif
+}
+
+MPI_SharedWindow::~MPI_SharedWindow() {
+#ifdef _IQTREE_MPI
+    if (window != MPI_WIN_NULL) {
+        MPI_Win_free(&window);  // Free the window before MPI_Finalize
+    }
+#else
+    delete [] shared_memory;
+#endif
+}
+
+double MPI_SharedWindow::get_shared_memory(int idx) {
+    assert(idx < num_elements);
+    double ret;
+#ifdef _IQTREE_MPI
+    lock();
+    MPI_Get(&ret, 1, MPI_DOUBLE, 0, idx, 1, MPI_DOUBLE, window);
+    unlock();
+#else
+    ret = shared_memory[idx];
+#endif
+    return ret;
+}
+
+void MPI_SharedWindow::set_shared_memory(int idx, double value) {
+    assert(idx < num_elements);
+#ifdef _IQTREE_MPI
+    lock();
+    MPI_Put(&value, 1, MPI_DOUBLE, 0, idx, 1, MPI_DOUBLE, window);
+    unlock();
+#else
+    shared_memory[idx] = value;
+#endif
+}
+
+int MPI_SharedWindow::get_and_increment(int idx) {
+    assert(idx < num_elements);
+    double ret;
+#ifdef _IQTREE_MPI
+    double one = 1;
+    lock();
+    MPI_Fetch_and_op(&one, &ret, MPI_DOUBLE, 0, idx, MPI_SUM, window);
+    unlock();
+#else
+    ret = shared_memory[idx];
+    shared_memory[idx] += 1;
+#endif
+
+    return ret;
+}
+
+void MPI_SharedWindow::lock() {
+#ifdef _IQTREE_MPI
+    if (!depth_lock++)
+        MPI_Win_lock(MPI_LOCK_EXCLUSIVE, 0, 0, window);
+#endif
+}
+
+void MPI_SharedWindow::unlock() {
+#ifdef _IQTREE_MPI
+    if (!--depth_lock)
+        MPI_Win_unlock(0, window);
+#endif
+}
