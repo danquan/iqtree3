@@ -86,6 +86,8 @@ void IQTree::init() {
     contree_rfdist = -1;
     boot_consense_logl = 0.0;
 
+    sample_start = 0;
+    sample_end = 0;
 }
 
 IQTree::IQTree(Alignment *aln) : PhyloTree(aln) {
@@ -2446,7 +2448,9 @@ string IQTree::optimizeBranches(int maxTraversal) {
 }
 
 double IQTree::doTreeSearch() {
-    
+    double cputime_init_ufboot_start = getCPUTime();
+    double realtime_init_ufboot_start = getRealTime();
+
     if (params->numInitTrees > 1) {
         cout << "--------------------------------------------------------------------" << endl;
         cout << "|             INITIALIZING CANDIDATE TREE SET                      |" << endl;
@@ -2514,6 +2518,21 @@ double IQTree::doTreeSearch() {
     if (!getCheckpoint()->getBool("finishedCandidateSet")) {
         cout << "CHECKPOINT: " << stop_rule.getCurIt() << " search iterations restored" << endl;
     }
+    
+    double cputime_init_ufboot = getCPUTime() - cputime_init_ufboot_start;
+    double realtime_init_ufboot = getRealTime() - realtime_init_ufboot_start;
+    // cout << "CPU time for Initializing Candidate Tree Set: " << cputime_init_ufboot << " seconds (" << convert_time(cputime_init_ufboot) << ")" << endl;
+    // cout << "Wall-clock time for Initializing Candidate Tree Set: " << realtime_init_ufboot << " seconds (" << convert_time(realtime_init_ufboot) << ")" << endl;
+    fprintf(stderr, 
+        "CPU time for Initializing Candidate Tree Set: %.2f seconds (%s)\n", 
+        cputime_init_ufboot, 
+        convert_time(cputime_init_ufboot).c_str()
+    );
+    fprintf(stderr, 
+        "Wall-clock time for Initializing Candidate Tree Set: %.2f seconds (%s)\n", 
+        realtime_init_ufboot, 
+        convert_time(realtime_init_ufboot).c_str()
+    );
 
     searchinfo.curPerStrength = params->initPS;
     double cur_correlation = 0.0;
@@ -2542,8 +2561,11 @@ double IQTree::doTreeSearch() {
     int ufboot_count, ufboot_count_check;
     stop_rule.getUFBootCountCheck(ufboot_count, ufboot_count_check);
 
-    while (!stop_rule.meetStopCondition(stop_rule.getCurIt(), cur_correlation)) {
+    double cputime_search_ufboot_start = getCPUTime();
+    double realtime_search_ufboot_start = getRealTime();
 
+    while (!stop_rule.meetStopCondition(stop_rule.getCurIt(), cur_correlation)) {
+        syncWorkers = 1;
         searchinfo.curIter = stop_rule.getCurIt();
         // estimate logl_cutoff for bootstrap
         if (!boot_orig_logl.empty()) {
@@ -2569,13 +2591,30 @@ double IQTree::doTreeSearch() {
         pair<int, int> nniInfos; // <num_NNIs, num_steps>
         nniInfos = doNNISearch();
         curTree = getTreeString();
+        if (Params::getInstance().consistent_treesearch) {
+            curScore = computeLogL();
+        }
         int pos = addTreeToCandidateSet(curTree, curScore, true, MPIHelper::getInstance().getProcessID());
         if (pos != -2 && pos != -1 && (Params::getInstance().fixStableSplits || Params::getInstance().adaptPertubation)) {
             candidateTrees.computeSplitOccurences(Params::getInstance().stableSplitThreshold);
         }
 
-        if (MPIHelper::getInstance().isWorker() || MPIHelper::getInstance().gotMessage()) {
-            syncCurrentTree();
+        if (Params::getInstance().consistent_treesearch) {
+            bool isStopMessage = MPIHelper::getInstance().isWorker();
+            if (MPIHelper::getInstance().isWorker()) {
+                isStopMessage = syncCurrentTree();
+            } else {
+                if (MPIHelper::getInstance().getNumProcesses() > 1) {
+                    while (syncWorkers) syncCurrentTree();
+                }
+            }
+            if (!isStopMessage) {
+                MPIHelper::getInstance().barrier();
+            }
+        } else {
+            if (MPIHelper::getInstance().isWorker() || MPIHelper::getInstance().gotMessage()) {
+                syncCurrentTree();
+            }
         }
 
 
@@ -2663,6 +2702,25 @@ double IQTree::doTreeSearch() {
 
     }
 
+    double cputime_search_ufboot = getCPUTime() - cputime_search_ufboot_start;
+    double realtime_search_ufboot = getRealTime() - realtime_search_ufboot_start;
+    // cout << "CPU time for Tree Search: " << cputime_search_ufboot << " seconds (" << convert_time(cputime_search_ufboot) << ")" << endl;
+    // cout << "Wall-clock time for Tree Search: " << realtime_search_ufboot << " seconds (" << convert_time(realtime_search_ufboot) << ")" << endl;
+    fprintf(stderr, 
+        "CPU time for Tree Search: %.2f seconds (%s)\n", 
+        cputime_search_ufboot, 
+        convert_time(cputime_search_ufboot).c_str()
+    );
+    fprintf(stderr,
+        "Wall-clock time for Tree Search: %.2f seconds (%s)\n", 
+        realtime_search_ufboot, 
+        convert_time(realtime_search_ufboot).c_str()
+    );
+
+    if (!early_stop) {
+        sendStopMessage();
+    }
+
     // 2019-06-03: check convergence here to avoid effect of refineBootTrees
     if (boot_splits.size() >= 2 && MPIHelper::getInstance().isMaster()) {
         // check the stopping criterion for ultra-fast bootstrap
@@ -2671,14 +2729,28 @@ double IQTree::doTreeSearch() {
         }
         
     }
+
+    double cputime_refine_ufboot_start = getCPUTime();
+    double realtime_refine_ufboot_start = getRealTime();
     
     if(params->ufboot2corr) {
         refineBootTrees();
     }
 
-    if (!early_stop) {
-        sendStopMessage();
-    }
+    double cputime_refine_ufboot = getCPUTime() - cputime_refine_ufboot_start;
+    double realtime_refine_ufboot = getRealTime() - realtime_refine_ufboot_start;
+    // cout << "CPU time for Refining Boot Trees: " << cputime_refine_ufboot << " seconds (" << convert_time(cputime_refine_ufboot) << ")" << endl;
+    // cout << "Wall-clock time for Refining Boot Trees: " << realtime_refine_ufboot << " seconds (" << convert_time(realtime_refine_ufboot) << ")" << endl;
+    fprintf(stderr, 
+        "CPU time for Refining Boot Trees: %.2f seconds (%s)\n", 
+        cputime_refine_ufboot, 
+        convert_time(cputime_refine_ufboot).c_str()
+    );
+    fprintf(stderr, 
+        "Wall-clock time for Refining Boot Trees: %.2f seconds (%s)\n", 
+        realtime_refine_ufboot, 
+        convert_time(realtime_refine_ufboot).c_str()
+    );
 
     readTreeString(candidateTrees.getBestTreeStrings()[0]);
 
@@ -2953,15 +3025,15 @@ void IQTree::refineBootTrees() {
     ModelsBlock *models_block = readModelsDefinition(*params);
     
 	// do bootstrap analysis
-	for (int sample = refined_samples; sample < boot_trees.size(); sample++) {
+    for (int sample = sample_start; sample < sample_end; sample++) {
         // create bootstrap alignment
         Alignment* bootstrap_alignment;
         if (aln->isSuperAlignment()) {
             bootstrap_alignment = new SuperAlignment;
         } else {
             bootstrap_alignment = new Alignment;
-        }
-        bootstrap_alignment->createBootstrapAlignment(aln, nullptr, params->bootstrap_spec);
+        // bootstrap_alignment->createBootstrapAlignment(aln, NULL, params->bootstrap_spec);
+        bootstrap_alignment->buildFromPatternFreq(*aln, boot_samples_int[sample]);
 
         // create bootstrap tree
         IQTree *boot_tree;
@@ -3047,7 +3119,8 @@ void IQTree::refineBootTrees() {
         }
 
         if (verbose_mode >= VB_MED) {
-            cout << "UFBoot tree " << sample+1 << ": " << boot_logl[sample] << " -> " << boot_tree->getCurScore() << endl;
+            // cout << "UFBoot tree " << sample+1 << ": " << boot_logl[sample] << " -> " << boot_tree->getCurScore() << endl;
+            printf("UFBoot tree %d: %.2f -> %.2f\n", sample+1, boot_logl[sample], boot_tree->getCurScore());
         }
 
         stringstream ostr;
@@ -3086,7 +3159,29 @@ void IQTree::refineBootTrees() {
     
     delete models_block;
 
-    cout << "Total " << refined_trees << " ufboot trees refined" << endl;
+#ifdef _IQTREE_MPI
+    // Sum up the number of refined trees
+    MPIHelper::getInstance().barrier();
+
+    int total_refined_trees = 0;
+    MPI_Reduce(&refined_trees, &total_refined_trees, 1, MPI_INT, MPI_SUM, PROC_MASTER, MPI_COMM_WORLD);
+
+    cout << "Total " << total_refined_trees << " ufboot trees refined" << endl;
+
+    // Sync boot trees
+    MPIHelper::getInstance().barrier();
+    Checkpoint *new_checkpoint = new Checkpoint;
+    if (MPIHelper::getInstance().isWorker()) {
+        saveUFBoot(new_checkpoint);
+        MPIHelper::getInstance().sendCheckpoint(new_checkpoint, PROC_MASTER);
+    } else {
+        for (int i = 1; i < MPIHelper::getInstance().getNumProcesses(); i++) {
+            int worker = MPIHelper::getInstance().recvCheckpoint(new_checkpoint);
+            restoreUFBoot(new_checkpoint);
+        }
+    }
+    delete new_checkpoint;
+#endif
 
     // restore randstream
     finish_random();
@@ -4760,7 +4855,7 @@ void IQTree::syncCurrentTree() {
         CKP_RESTORE(tree);
         CKP_RESTORE(score);
         int pos = addTreeToCandidateSet(tree, score, true, worker);
-        if (pos >= 0 && pos < params->popSize) {
+        if (!Params::getInstance().consistent_treesearch && pos >= 0 && pos < params->popSize) {
             // candidate set is changed, update for other workers
             for (int w = 0; w < candidateset_changed.size(); w++) {
                 if (w != worker) {
@@ -4775,17 +4870,33 @@ void IQTree::syncCurrentTree() {
 
         // send candidate trees to worker
         checkpoint->clear();
-        if (boot_samples.size() > 0) {
-            CKP_SAVE(logl_cutoff);
+
+        if (Params::getInstance().consistent_treesearch) {
+            if (++syncWorkers == MPIHelper::getInstance().getNumProcesses()) {
+                if (boot_samples.size() > 0)
+                    CKP_SAVE(logl_cutoff);
+                for (int worker = 1; worker < MPIHelper::getInstance().getNumProcesses(); ++worker) {
+                    CandidateSet cset = candidateTrees.getBestCandidateTrees(Params::getInstance().popSize);
+                    cset.setCheckpoint(checkpoint);
+                    cset.saveCheckpoint();
+                    MPIHelper::getInstance().increaseTreeSent(Params::getInstance().popSize);
+                    MPIHelper::getInstance().sendCheckpoint(checkpoint, worker);
+                }
+                syncWorkers = 0;      
+            }
+        } else {
+            if (boot_samples.size() > 0) {
+                CKP_SAVE(logl_cutoff);
+            }
+            if (candidateset_changed[worker]) {
+                CandidateSet cset = candidateTrees.getBestCandidateTrees(Params::getInstance().popSize);
+                cset.setCheckpoint(checkpoint);
+                cset.saveCheckpoint();
+                candidateset_changed[worker] = false;
+                MPIHelper::getInstance().increaseTreeSent(Params::getInstance().popSize);
+            }
+            MPIHelper::getInstance().sendCheckpoint(checkpoint, worker);
         }
-        if (candidateset_changed[worker]) {
-            CandidateSet cset = candidateTrees.getBestCandidateTrees(Params::getInstance().popSize);
-            cset.setCheckpoint(checkpoint);
-            cset.saveCheckpoint();
-            candidateset_changed[worker] = false;
-            MPIHelper::getInstance().increaseTreeSent(Params::getInstance().popSize);
-        }
-        MPIHelper::getInstance().sendCheckpoint(checkpoint, worker);
     } else {
         // worker: always send tree to MASTER
         tree = getTreeString();
@@ -4803,6 +4914,8 @@ void IQTree::syncCurrentTree() {
         if (checkpoint->getBool("stop")) {
             cout << "Worker " << MPIHelper::getInstance().getProcessID() << " gets STOP message!" << endl;
             stop_rule.shouldStop();
+            delete checkpoint;
+            return true;
         } else {
             CandidateSet cset;
             cset.setCheckpoint(checkpoint);
@@ -4818,6 +4931,7 @@ void IQTree::syncCurrentTree() {
 
     delete checkpoint;
 
+    return false;
 #endif
 }
 

@@ -19,6 +19,8 @@
 #include "utils/MPIHelper.h"
 #include <set>
 
+#define CHECKPOINT_BUFFER_SIZE 1048576 // 1MB
+
 class PhyloTree;
 class IQTree;
 class ModelCheckpoint;
@@ -240,6 +242,8 @@ public:
      */
     void filterRates(int finished_model);
 
+    void filterRatesMPI(int finished_model);
+
     /**
      Filter out all "non-promissing" substitution models
      */
@@ -284,6 +288,9 @@ public:
                 string name = at(model).rate_name.substr(0, posR+2) + convertIntToString(cat-1);
                 if (at(prev_model).rate_name != name)
                     break;
+                
+                if (Params::getInstance().mpi_by_model && (getScore(prev_model) == 0 || getScore(prev_model) == DBL_MAX)) continue;
+
                 if (!at(prev_model).hasFlag(MF_DONE))
                     continue;
                 return prev_model;
@@ -333,6 +340,15 @@ public:
 
     /** whether it is under the process of mixture finder */
     bool under_mix_finder;
+    
+    /**
+     evaluate all models in parallel by MPI
+     */
+    CandidateModel evaluateMPI(Params &params, PhyloTree* in_tree, ModelCheckpoint &model_info,
+                     ModelsBlock *models_block, int num_threads, int brlen_type,
+                     string set_name = "", string in_model_name = "", bool merge_phase = false, bool generate_candidates = true, bool skip_all_when_drop = false);
+    
+    double getScore(int idx);
     
 private:
     

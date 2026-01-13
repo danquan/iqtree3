@@ -37,8 +37,35 @@
 #define BOOT_TAG 3 // Message to please send bootstrap trees
 #define BOOT_TREE_TAG 4 // bootstrap tree tag
 #define LOGL_CUTOFF_TAG 5 // send logl_cutoff for ultrafast bootstrap
+#define MODEL_TEST_TAG 6 // send model test result
 
 // using namespace std;
+
+class MPI_SharedWindow {
+public:
+    MPI_SharedWindow(int num_elements);
+
+    ~MPI_SharedWindow();
+
+    double get_shared_memory(int idx);
+
+    void set_shared_memory(int idx, double value);
+
+    void lock();
+
+    void unlock();
+
+    int get_and_increment(int idx);
+
+private:
+#ifdef _IQTREE_MPI
+    MPI_Win window;
+#endif
+    double* shared_memory;
+    int world_rank;
+    int num_elements;
+    int depth_lock;
+};
 
 class MPIHelper {
 public:
@@ -105,6 +132,17 @@ public:
     */
 
 #ifdef _IQTREE_MPI
+    MPI_Request sendBufferAsync(char* buf, int len, int dest, int tag);
+    void waitBufferSend(MPI_Request& request);
+
+    /** wrapper for MPI_Isend a buffer
+        @param ckp Checkpoint object to send
+        @param buffer the buffer to hold the serialized checkpoint data
+        @param dest destination process
+        @param tag message tag
+     */
+    MPI_Request sendCheckpointAsync(Checkpoint *ckp, char *buffer, int dest, int tag = TREE_TAG);
+
     void sendString(string &str, int dest, int tag);
 
     /** wrapper for MPI_Recv a string
@@ -119,7 +157,7 @@ public:
         @param ckp Checkpoint object to send
         @param dest destination process
     */
-    void sendCheckpoint(Checkpoint *ckp, int dest);
+    void sendCheckpoint(Checkpoint *ckp, int dest, int tag = TREE_TAG);
 
     /** wrapper for MPI_Recv an entire Checkpoint object
         @param[out] ckp Checkpoint object received
@@ -127,7 +165,7 @@ public:
         @param tag message tag
         @return the source process that sent the message
     */
-    int recvCheckpoint(Checkpoint *ckp, int src = MPI_ANY_SOURCE);
+    int recvCheckpoint(Checkpoint *ckp, int src = MPI_ANY_SOURCE, int tag = TREE_TAG);
 
     /**
         wrapper for MPI_Bcast to broadcast checkpoint from Master to all Workers
@@ -201,6 +239,9 @@ public:
     void setNumNNISearch(int numNNISearch) {
         MPIHelper::numNNISearch = numNNISearch;
     }
+
+    int numModels;
+    MPI_SharedWindow* models;
 
 private:
     int numNNISearch;

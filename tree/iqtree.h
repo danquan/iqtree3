@@ -695,9 +695,10 @@ public:
         MPI: synchronize tree of current iteration with master
         will update candidateset_changed
         @param curTree current tree
-
+        @return true if worker received a stop message from master
+                false otherwise
     */
-    void syncCurrentTree();
+    bool syncCurrentTree();
 
     /**
         MPI: Master sends stop message to all workers
@@ -877,6 +878,8 @@ protected:
 
     // true if best candidate tree is changed
     bool bestcandidate_changed;
+
+    int syncWorkers;
 
     /**
             number of IQPNNI iterations

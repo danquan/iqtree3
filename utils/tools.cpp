@@ -4570,6 +4570,11 @@ void parseArg(int argc, char *argv[], Params &params) {
                 continue;
             }
 
+            if (strcmp(argv[cnt], "--mpi-model") == 0) {
+                params.mpi_by_model = true;
+                continue;
+            }
+
             if (strcmp(argv[cnt], "--thread-site") == 0) {
                 params.openmp_by_model = false;
                 continue;
@@ -4577,6 +4582,11 @@ void parseArg(int argc, char *argv[], Params &params) {
 
             if (strcmp(argv[cnt], "--weighted-perturbation") == 0 || strcmp(argv[cnt], "-weighted-perturbation") == 0) {
                 params.weightedPerturbation = true;
+                continue;
+            }
+
+            if (strcmp(argv[cnt], "--consistent-ts") == 0) {
+                params.consistent_treesearch = true;
                 continue;
             }
 
@@ -7354,6 +7364,8 @@ void Params::setDefault() {
     num_threads = 1;
     num_threads_max = 10000;
     openmp_by_model = false;
+    mpi_by_model = false;
+    consistent_treesearch = false;
     model_test_criterion = MTC_BIC;
 //    model_test_stop_rule = MTC_ALL;
     model_test_sample_size = 0;
