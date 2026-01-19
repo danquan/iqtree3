@@ -3682,19 +3682,18 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
 
             // BQM 2024-06-22: save checkpoint for starting values of next model
             model_info.putSubCheckpoint(&out_model_info, "");
+            if (model > rate_block) {
+                MPIHelper::getInstance().models->lock();
+
+                ofstream outCheckpoint(checkpointFile.c_str());
+                model_info.dump(outCheckpoint);
+                
+                MPIHelper::getInstance().models->unlock();
+            }
             
             // only update model_info with better model
             if (at(model).getScore() < best_score) {
                 // model_info.putSubCheckpoint(&out_model_info, "");
-
-                if (model > rate_block) {
-                    MPIHelper::getInstance().models->lock();
-
-                    ofstream outCheckpoint(checkpointFile.c_str());
-                    model_info.dump(outCheckpoint);
-                    
-                    MPIHelper::getInstance().models->unlock();
-                }
             }
 
             // Set flag
