@@ -1863,19 +1863,6 @@ string CandidateModel::evaluate(Params &params,
     ModelsBlock *models_block,
     int &num_threads, int brlen_type)
 {
-    // Load checkpoint from file
-    if (params.mpi_by_model) {
-        MPIHelper::getInstance().models->lock();
-        string checkpointFile = params.out_prefix;
-        checkpointFile += ".temp.ckp.gz";
-        ifstream checkpointStream(checkpointFile.c_str());
-        if (checkpointStream.is_open()) {
-            in_model_info.load(checkpointStream);
-            checkpointStream.close();
-        }
-        MPIHelper::getInstance().models->unlock();
-    }
-
     //string model_name = name;
     Alignment *in_aln = aln;
     IQTree *iqtree = NULL;
@@ -3198,7 +3185,6 @@ CandidateModel CandidateModelSet::test(Params &params, PhyloTree* in_tree, Model
                 is_better_model = true;
             }
         }
-
 		if (at(model).BIC_score < best_score_BIC) {
 			best_model_BIC = model;
             best_score_BIC = at(model).BIC_score;
@@ -3567,7 +3553,9 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
     checkpointFile += ".temp.ckp.gz";
 
     if (MPIHelper::getInstance().isMaster()) {
-        remove(checkpointFile.c_str());
+        if (!remove(checkpointFile.c_str())) {
+            outWarning("File does not exist or could not remove existing checkpoint file: " + checkpointFile);
+        }
     }
 
     // ModelCheckpoint *checkpoint = &model_info;
@@ -3641,9 +3629,7 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
     int64_t num_models = size();
 
     Checkpoint *checkpoint = new Checkpoint;
-
     MPIHelper::getInstance().models = new MPI_SharedWindow(num_models + 1);
-
     MPIHelper::getInstance().barrier();
 
     auto processModel = [&](int model) {
@@ -3654,6 +3640,17 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
             at(model).set_name = at(model).aln->name;
             string tree_string;
             
+            // Load checkpoint from file
+            if (params.mpi_by_model) {
+                MPIHelper::getInstance().models->lock();
+                ifstream checkpointStream(checkpointFile.c_str());
+                if (checkpointStream.is_open()) {
+                    model_info.load(checkpointStream);
+                    checkpointStream.close();
+                }
+                MPIHelper::getInstance().models->unlock();
+            }
+
             // main call to estimate model parameters
             double cur = getRealTime();
             tree_string = at(model).evaluate(params, model_info, out_model_info,
@@ -3680,6 +3677,15 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
             
             MPIHelper::getInstance().models->set_shared_memory(model, at(model).getScore());
 
+            // for (auto i : out_model_info) {
+            //     fprintf(stderr, "PROCESS %d - out_model_info CHECKPOINT %s: Key = %s, Value = %s\n",
+            //         MPIHelper::getInstance().getProcessID(),
+            //         at(model).getName().c_str(),
+            //         i.first.c_str(),
+            //         i.second.c_str()
+            //     );
+            // }
+
             // BQM 2024-06-22: save checkpoint for starting values of next model
             model_info.putSubCheckpoint(&out_model_info, "");
             if (model > rate_block) {
@@ -3689,11 +3695,6 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
                 model_info.dump(outCheckpoint);
                 
                 MPIHelper::getInstance().models->unlock();
-            }
-            
-            // only update model_info with better model
-            if (at(model).getScore() < best_score) {
-                // model_info.putSubCheckpoint(&out_model_info, "");
             }
 
             // Set flag
@@ -3770,6 +3771,7 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
                     >> at(model).logl >> at(model).df >> at(model).tree_len 
                     >> at(model).AIC_score >> at(model).AICc_score >> at(model).BIC_score;
                 if (at(model).rate_name == "@") at(model).rate_name = "";
+                at(model).saveCheckpoint(&model_info);
             }
 
             checkpoint->clear();
@@ -3781,6 +3783,7 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
             }
     };
 
+    // master process pre-processes initial models
     if (MPIHelper::getInstance().isMaster()) {
         for (int model = 0; model <= rate_block; ++model) {
             processModel(model);
@@ -3788,22 +3791,23 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
 
         ofstream outCheckpoint(checkpointFile.c_str());
         model_info.dump(outCheckpoint);
+        outCheckpoint.close();
     }
     syncModel();
-
     MPIHelper::getInstance().barrier();
     
     if (rate_block > 0) {
         filterRatesMPI(rate_block);
     }
     MPIHelper::getInstance().models->set_shared_memory(num_models, rate_block + 1);
-
     MPIHelper::getInstance().barrier();
 
+    // distribute remaining models
     int numStopCkpt = 0;
     while (true) {
         int model = MPIHelper::getInstance().models->get_and_increment(num_models);
 
+        // check stop condition
         if (model >= num_models) {
             if (MPIHelper::getInstance().isWorker()) {
                 // Send stop signal to master
@@ -3842,6 +3846,7 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
                     stringstream str(it->second);
                     str >> at(model).subst_name >> at(model).rate_name >> at(model).logl >> at(model).df >> at(model).tree_len >> at(model).AIC_score >> at(model).AICc_score >> at(model).BIC_score;
                     if (at(model).rate_name == "@") at(model).rate_name = "";
+                    at(model).saveCheckpoint(&model_info);
 
                     cout.width(3);
                     cout << right << model+1 << "  ";
@@ -6973,6 +6978,11 @@ void optimiseQMixModel_method_update(Params &params, IQTree* &iqtree, ModelCheck
     model_info.getString("best_model_BIC", best_model_pre_BIC);
     model_info.getString("best_model_list_" + criteria_str, best_model_pre_list);
 
+    // fprintf(stderr, "PROCES %d - MODEL CHECKPOINT: %d-class model selected:\n", MPIHelper::getInstance().getProcessID(), getClassNum(best_subst_name));
+    // for (auto i : model_info) {
+    //     fprintf(stderr, "PROCESS %d - MODEL CHECKPOINT: Key = %s, Value = %s\n", MPIHelper::getInstance().getProcessID(), i.first.c_str(), i.second.c_str());
+    // }
+
     // Step 3: keep adding a new class until no further improvement
     if (params.opt_qmix_criteria == 1) {
         cout << endl << "Keep adding an additional class until the p-value from the likelihood ratio test > " << params.opt_qmix_pthres << endl;
@@ -7008,6 +7018,10 @@ void optimiseQMixModel_method_update(Params &params, IQTree* &iqtree, ModelCheck
             model_info.getString("best_model_list_" + criteria_str, best_model_pre_list);
 
         }
+        // fprintf(stderr, "PROCES %d - MODEL CHECKPOINT: %d-class model selected:\n", MPIHelper::getInstance().getProcessID(), getClassNum(best_subst_name));
+        // for (auto i : model_info) {
+        //     fprintf(stderr, "PROCESS %d - MODEL CHECKPOINT: Key = %s, Value = %s\n", MPIHelper::getInstance().getProcessID(), i.first.c_str(), i.second.c_str());
+        // }
     } while (better_model && getClassNum(best_subst_name)+1 <= params.max_mix_cats);
 
     model_info.put("best_model_list_" + criteria_str, best_model_pre_list);
