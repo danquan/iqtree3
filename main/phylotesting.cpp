@@ -3546,7 +3546,7 @@ CandidateModel CandidateModelSet::evaluateAll(Params &params, PhyloTree* in_tree
 
 CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree, ModelCheckpoint &model_info,
                                     ModelsBlock *models_block, int num_threads, int brlen_type,
-                                    string in_model_name, bool merge_phase, bool generate_candidates, bool skip_all_when_drop) 
+                                    string set_name, string in_model_name, bool merge_phase, bool generate_candidates, bool skip_all_when_drop) 
 {
     // Temporary file to store checkpoint
     string checkpointFile = params.out_prefix;
@@ -3637,8 +3637,10 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
             // optimize model parameters
             // keep separate output model_info to only update model_info if better model found
             ModelCheckpoint out_model_info;
-            at(model).set_name = at(model).aln->name;
+            at(model).set_name = set_name;
             string tree_string;
+            at(model).nest_network = nest_network;
+            // at(model).syncChkPoint = this->syncChkPoint;
             
             // Load checkpoint from file
             if (params.mpi_by_model) {
@@ -3688,7 +3690,7 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
 
             // BQM 2024-06-22: save checkpoint for starting values of next model
             model_info.putSubCheckpoint(&out_model_info, "");
-            if (model > rate_block) {
+            if (model > rate_block && MPIHelper::getInstance().isMaster()) {
                 MPIHelper::getInstance().models->lock();
 
                 ofstream outCheckpoint(checkpointFile.c_str());
@@ -6862,8 +6864,8 @@ CandidateModel runModelSelection(Params &params, IQTree &iqtree, ModelCheckpoint
     // model selection
     candidate_models.under_mix_finder = true;
     if (params.mpi_by_model) {
-        best_model = candidate_models.evaluateMPI(params, &iqtree, model_info, models_block,
-                                       params.num_threads, BRLEN_OPTIMIZE, in_model_name, merge_phase, generate_candidates, skip_all_when_drop);
+        best_model = candidate_models.evaluateMPI(params, &iqtree, model_info, models_block, params.num_threads, BRLEN_OPTIMIZE, 
+                                       set_name, in_model_name, merge_phase, generate_candidates, skip_all_when_drop);
     } else {
         best_model = candidate_models.test(params, &iqtree, model_info, models_block, params.num_threads, BRLEN_OPTIMIZE,
                                        set_name, in_model_name, merge_phase, generate_candidates, skip_all_when_drop);
