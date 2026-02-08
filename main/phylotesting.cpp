@@ -1481,7 +1481,7 @@ void runModelFinder(Params &params, IQTree &iqtree, ModelCheckpoint &model_info,
         } else {
 #endif
             if (params.mpi_by_model)
-                best_model = CandidateModelSet().evaluateMPI(params, &iqtree,
+                best_model = model_set.evaluateMPI(params, &iqtree,
                                                              model_info, models_block, params.num_threads, 
                                                              BRLEN_OPTIMIZE);
             else if (params.openmp_by_model)
