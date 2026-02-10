@@ -125,11 +125,11 @@ void MPIHelper::sendString(string &str, int dest, int tag) {
     MPI_Send(buf, len, MPI_CHAR, dest, tag, MPI_COMM_WORLD);
 }
 
-void MPIHelper::sendCheckpoint(Checkpoint *ckp, int dest) {
+void MPIHelper::sendCheckpoint(Checkpoint *ckp, int dest, int tag) {
     stringstream ss;
     ckp->dump(ss);
     string str = ss.str();
-    sendString(str, dest, TREE_TAG);
+    sendString(str, dest, tag);
 }
 
 
@@ -146,9 +146,9 @@ int MPIHelper::recvString(string &str, int src, int tag) {
     return status.MPI_SOURCE;
 }
 
-int MPIHelper::recvCheckpoint(Checkpoint *ckp, int src) {
+int MPIHelper::recvCheckpoint(Checkpoint *ckp, int src, int tag) {
     string str;
-    int proc = recvString(str, src, TREE_TAG);
+    int proc = recvString(str, src, tag);
     stringstream ss(str);
     ckp->load(ss);
     return proc;

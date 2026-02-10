@@ -37,6 +37,7 @@
 #define BOOT_TAG 3 // Message to please send bootstrap trees
 #define BOOT_TREE_TAG 4 // bootstrap tree tag
 #define LOGL_CUTOFF_TAG 5 // send logl_cutoff for ultrafast bootstrap
+#define MODEL_TEST_TAG 6 // send model test result
 
 using namespace std;
 
@@ -145,7 +146,7 @@ public:
         @param ckp Checkpoint object to send
         @param dest destination process
     */
-    void sendCheckpoint(Checkpoint *ckp, int dest);
+    void sendCheckpoint(Checkpoint *ckp, int dest, int tag = TREE_TAG);
 
     /** wrapper for MPI_Recv an entire Checkpoint object
         @param[out] ckp Checkpoint object received
@@ -153,7 +154,7 @@ public:
         @param tag message tag
         @return the source process that sent the message
     */
-    int recvCheckpoint(Checkpoint *ckp, int src = MPI_ANY_SOURCE);
+    int recvCheckpoint(Checkpoint *ckp, int src = MPI_ANY_SOURCE, int tag = TREE_TAG);
 
     /**
         wrapper for MPI_Bcast to broadcast checkpoint from Master to all Workers
