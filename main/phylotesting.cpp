@@ -3761,11 +3761,11 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
             // save checkpoint
             stringstream ostr;
             ostr.precision(10);
-            ostr << model << " "
-                 << at(model).logl << " " << at(model).df << " " << at(model).tree_len << " " 
+            ostr << model << " " << at(model).subst_name << " " << ((at(model).rate_name == "") ? "@" : at(model).rate_name) << " "
+                 << at(model).logl << " " << at(model).df << " " << at(model).tree_len << " "
                  << tree_string << " "
                  << at(model).AIC_score << " " << at(model).AICc_score << " " << at(model).BIC_score;
-            
+
             syncCheckpoint->startStruct(syncChkpointName);
             syncCheckpoint->put(at(model).getName(), ostr.str());
             syncCheckpoint->endStruct();
@@ -3809,6 +3809,10 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
                 string tree_string;
                 stringstream str(it->second);
                 str >> model;
+                str >> at(model).subst_name >> at(model).rate_name;
+                if (at(model).rate_name == "@")
+                    at(model).rate_name = "";
+
                 str >> at(model).logl >> at(model).df >> at(model).tree_len;
                 str >> tree_string;
                 str >> at(model).AIC_score >> at(model).AICc_score >> at(model).BIC_score;
