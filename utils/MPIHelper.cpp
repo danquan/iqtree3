@@ -122,7 +122,11 @@ bool MPIHelper::gotMessage() {
 void MPIHelper::sendString(string &str, int dest, int tag) {
     char *buf = (char*)str.c_str();
     int len = str.length()+1;
+
+    double cur = getRealTime();
     MPI_Send(buf, len, MPI_CHAR, dest, tag, MPI_COMM_WORLD);
+    double elapsed = getRealTime() - cur;
+    fprintf(stderr, "[Process %d] Finish sending %d chars to process %d, time = %.6f seconds\n", getProcessID(), len, dest, elapsed);
 }
 
 void MPIHelper::sendCheckpoint(Checkpoint *ckp, int dest, int tag) {
