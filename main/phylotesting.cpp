@@ -3564,14 +3564,14 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
                                     string set_name, string in_model_name, bool merge_phase, bool generate_candidates, bool skip_all_when_drop) 
 {
     // Temporary file to store checkpoint
-    // string checkpointFile = params.out_prefix;
-    // checkpointFile += ".temp.ckp.gz";
+    string checkpointFile = params.out_prefix;
+    checkpointFile += ".temp.ckp.gz";
 
-    // if (MPIHelper::getInstance().isMaster()) {
-    //     if (!remove(checkpointFile.c_str())) {
-    //         outWarning("File does not exist or could not remove existing checkpoint file: " + checkpointFile);
-    //     }
-    // }
+    if (MPIHelper::getInstance().isMaster()) {
+        if (!remove(checkpointFile.c_str())) {
+            outWarning("File does not exist or could not remove existing checkpoint file: " + checkpointFile);
+        }
+    }
 
     ModelCheckpoint *checkpoint = &model_info;
 
@@ -3710,13 +3710,15 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
             // at(model).syncChkPoint = this->syncChkPoint;
             
             // Load checkpoint from file
-            // MPIHelper::getInstance().models->lock();
-            // ifstream checkpointStream(checkpointFile.c_str());
-            // if (checkpointStream.is_open()) {
-            //     model_info.load(checkpointStream);
-            //     checkpointStream.close();
-            // }
-            // MPIHelper::getInstance().models->unlock();
+            if (MPIHelper::getInstance().isWorker()) {
+                MPIHelper::getInstance().models->lock();
+                ifstream checkpointStream(checkpointFile.c_str());
+                if (checkpointStream.is_open()) {
+                    model_info.load(checkpointStream);
+                    checkpointStream.close();
+                }
+                MPIHelper::getInstance().models->unlock();
+            }
 
             // main call to estimate model parameters
             double cur = getRealTime();
@@ -3746,21 +3748,20 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
 
             // BQM 2024-06-22: save checkpoint for starting values of next model
             model_info.putSubCheckpoint(&out_model_info, "");
-            // if (model > rate_block && MPIHelper::getInstance().isMaster()) {
-            //     MPIHelper::getInstance().models->lock();
-
-            //     ofstream outCheckpoint(checkpointFile.c_str());
-            //     model_info.dump(outCheckpoint);
-                
-            //     MPIHelper::getInstance().models->unlock();
-            // }
-
+            
             bool is_better_model = updateModel(model, tree_string);
             if (under_mix_finder && is_better_model) {
                 model_info.putSubCheckpoint(&out_model_info, "BestOfTheKClass");
                 syncCheckpoint->putSubCheckpoint(&out_model_info, "BestOfTheKClass");
             }
 
+            if (model > rate_block && MPIHelper::getInstance().isMaster()) {
+                MPIHelper::getInstance().models->lock();
+                ofstream outCheckpoint(checkpointFile.c_str());
+                model_info.dump(outCheckpoint);
+                MPIHelper::getInstance().models->unlock();
+            }
+            
             int lower_model = getLowerKModel(model);
 
             if (lower_model >= 0 && getScore(lower_model) < at(model).getScore()) {
@@ -3893,38 +3894,29 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
         return is_better_model;
     };
 
-
-    for (int i = 0; i < num_models; ++i) {
-        fprintf(stderr, "[Process %d - Before Filtering] Model %d is %s\n",
-            MPIHelper::getInstance().getProcessID(),
-            i + 1, 
-            at(i).getName().c_str()
-        );
-    }
-
     // ------- master process pre-processes initial models --------
     if (MPIHelper::getInstance().isMaster()) {
         for (int model = 0; model <= rate_block; ++model) {
             processModel(model);
         }
 
-        // ofstream outCheckpoint(checkpointFile.c_str());
-        // model_info.dump(outCheckpoint);
-        // outCheckpoint.close();
+        ofstream outCheckpoint(checkpointFile.c_str());
+        model_info.dump(outCheckpoint);
+        outCheckpoint.close();
 
-        for (int i = 1; i < MPIHelper::getInstance().getNumProcesses(); ++i) {
-            MPIHelper::getInstance().sendCheckpoint(
-                syncCheckpoint, i, MODEL_TEST_TAG
-            );
-        }
+        // for (int i = 1; i < MPIHelper::getInstance().getNumProcesses(); ++i) {
+        //     MPIHelper::getInstance().sendCheckpoint(
+        //         syncCheckpoint, i, MODEL_TEST_TAG
+        //     );
+        // }
         syncCheckpoint->clear();
     } else {
-        Checkpoint *newCheckpoint = new Checkpoint;
-        int worker = MPIHelper::getInstance().recvCheckpoint(
-            newCheckpoint, PROC_MASTER, MODEL_TEST_TAG
-        );
+        // Checkpoint *newCheckpoint = new Checkpoint;
+        // int worker = MPIHelper::getInstance().recvCheckpoint(
+        //     newCheckpoint, PROC_MASTER, MODEL_TEST_TAG
+        // );
 
-        syncModel(newCheckpoint);
+        // syncModel(newCheckpoint);
         syncCheckpoint->clear();
     }
     fprintf(stderr, "[Process %d] Finish first %d models\n", MPIHelper::getInstance().getProcessID(), rate_block);
@@ -3932,14 +3924,6 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
 
     if (rate_block > 0) {
         filterRatesMPI(rate_block);
-    }
-
-    for (int i = 0; i < num_models; ++i) {
-        fprintf(stderr, "[Process %d - After Filtering] Model %d is %s\n",
-            MPIHelper::getInstance().getProcessID(),
-            i + 1, 
-            at(i).getName().c_str()
-        );
     }
 
     MPIHelper::getInstance().models->set_shared_memory(num_models, rate_block + 1);
@@ -3952,15 +3936,15 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
 #ifdef _IQTREE_MPI
         if (MPIHelper::getInstance().isWorker()) {
             // sync checkpoint from master before processing the model
-            while (MPIHelper::getInstance().gotMessage()) {
-                Checkpoint *newCheckpoint = new Checkpoint;
-                fprintf(stderr, "[Process %d] Start receiving checkpoint from master\n", MPIHelper::getInstance().getProcessID());
-                int worker = MPIHelper::getInstance().recvCheckpoint(
-                    newCheckpoint, PROC_MASTER, MODEL_TEST_TAG
-                );
-                fprintf(stderr, "[Process %d] Finish receiving checkpoint from master\n", MPIHelper::getInstance().getProcessID());
-                syncModel(newCheckpoint);
-            }
+            // while (MPIHelper::getInstance().gotMessage()) {
+            //     Checkpoint *newCheckpoint = new Checkpoint;
+            //     fprintf(stderr, "[Process %d] Start receiving checkpoint from master\n", MPIHelper::getInstance().getProcessID());
+            //     int worker = MPIHelper::getInstance().recvCheckpoint(
+            //         newCheckpoint, PROC_MASTER, MODEL_TEST_TAG
+            //     );
+            //     fprintf(stderr, "[Process %d] Finish receiving checkpoint from master\n", MPIHelper::getInstance().getProcessID());
+            //     syncModel(newCheckpoint);
+            // }
         
             // Some model maybe ignored
             if (!syncCheckpoint->empty()) {
@@ -3988,15 +3972,21 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
                 syncModel(newCheckpoint);
             }
 
-            if (!syncCheckpoint->empty()) {
-                for (int i = 1; i < MPIHelper::getInstance().getNumProcesses(); ++i) {
-                    fprintf(stderr, "[Master] Start sending checkpoint to worker %d\n", i);
-                    MPIHelper::getInstance().sendCheckpoint(
-                        syncCheckpoint, i, MODEL_TEST_TAG
-                    );
-                    fprintf(stderr, "[Master] Finish sending checkpoint to worker %d\n", i);
-                }
-            }
+            // if (!syncCheckpoint->empty()) {
+            //     for (int i = 1; i < MPIHelper::getInstance().getNumProcesses(); ++i) {
+            //         fprintf(stderr, "[Master] Start sending checkpoint to worker %d\n", i);
+            //         MPIHelper::getInstance().sendCheckpoint(
+            //             syncCheckpoint, i, MODEL_TEST_TAG
+            //         );
+            //         fprintf(stderr, "[Master] Finish sending checkpoint to worker %d\n", i);
+            //     }
+            // }
+
+            MPIHelper::getInstance().models->lock();
+            ofstream outCheckpoint(checkpointFile.c_str());
+            model_info.dump(outCheckpoint);
+            MPIHelper::getInstance().models->unlock();
+
             syncCheckpoint->clear();
         }
     #endif
@@ -4014,21 +4004,21 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
                     stopCheckpoint, PROC_MASTER, MODEL_TEST_TAG
                 );
 
-                while (true) {
-                    if (MPIHelper::getInstance().gotMessage()) {
+                // while (true) {
+                //     if (MPIHelper::getInstance().gotMessage()) {
                         Checkpoint *newCheckpoint = new Checkpoint;
                         int worker = MPIHelper::getInstance().recvCheckpoint(
                             newCheckpoint, PROC_MASTER, MODEL_TEST_TAG
                         );
 
-                        if (newCheckpoint->find("stop") != newCheckpoint->end()) {
-                            break;
-                        }
+                        // if (newCheckpoint->find("stop") != newCheckpoint->end()) {
+                        //     break;
+                        // }
 
-                        syncModel(newCheckpoint);
+                        // syncModel(newCheckpoint);
                         syncCheckpoint->clear();
-                    }
-                }
+                    // }
+                // }
 #endif
                 break;
             } else if (numStopCkpt == MPIHelper::getInstance().getNumProcesses() - 1) {
