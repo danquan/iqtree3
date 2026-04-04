@@ -3032,6 +3032,7 @@ void IQTree::refineBootTrees() {
             bootstrap_alignment = new SuperAlignment;
         } else {
             bootstrap_alignment = new Alignment;
+        }
         // bootstrap_alignment->createBootstrapAlignment(aln, NULL, params->bootstrap_spec);
         bootstrap_alignment->buildFromPatternFreq(*aln, boot_samples_int[sample]);
 
@@ -4838,9 +4839,9 @@ void IQTree::syncCandidateTrees(int nTrees, bool updateStopRule) {
 #endif
 }
 
-void IQTree::syncCurrentTree() {
+bool IQTree::syncCurrentTree() {
     if (MPIHelper::getInstance().getNumProcesses() == 1) {
-        return;
+        return false;
     }
 #ifdef _IQTREE_MPI
     //------ BLOCKING COMMUNICATION ------//
