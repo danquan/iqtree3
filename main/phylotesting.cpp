@@ -1523,7 +1523,7 @@ void runModelFinder(Params &params, IQTree &iqtree, ModelCheckpoint &model_info,
         } else {
 #endif
             if (params.mpi_by_model)
-                best_model = model_set.evaluateMPI(params, &iqtree,
+                best_model = model_set.testMPI(params, &iqtree,
                                                              model_info, models_block, params.num_threads, 
                                                              BRLEN_OPTIMIZE);
             else if (params.openmp_by_model)
@@ -3308,6 +3308,10 @@ CandidateModel CandidateModelSet::test(Params &params, PhyloTree* in_tree, Model
             }
         }
 	}
+
+    for (auto i : model_info) {
+        fprintf(stderr, "PROCESS %d - MODEL CHECKPOINT: Key = %s, Value = %s\n", MPIHelper::getInstance().getProcessID(), i.first.c_str(), i.second.c_str());
+    }
     ASSERT(model_scores.size() == size());
 
     if (best_model_BIC == -1) {
@@ -3602,7 +3606,7 @@ CandidateModel CandidateModelSet::evaluateAll(Params &params, PhyloTree* in_tree
     return at(best_model);
 }
 
-CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree, ModelCheckpoint &model_info,
+CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, ModelCheckpoint &model_info,
                                     ModelsBlock *models_block, int num_threads, int brlen_type,
                                     string set_name, string in_model_name, bool merge_phase, bool generate_candidates, bool skip_all_when_drop) 
 {
@@ -3698,7 +3702,9 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
 
     Checkpoint *syncCheckpoint = new Checkpoint();
     string syncChkpointName = "ModelTestSyncCheckpoint";
-    string bestOfTheKClass = "BestOfTheKClass";
+
+    int k = getClassNum(at(0).getName());
+    string bestOfTheKClass = "BestOfThe" + convertIntToString(k) + "Class";
     MPIHelper::getInstance().models = new MPI_SharedWindow(num_models + 1);
     MPIHelper::getInstance().barrier();
 
@@ -3808,8 +3814,11 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
 
             bool is_better_model = updateModel(model, tree_string);
             if (under_mix_finder && is_better_model) {
-                model_info.putSubCheckpoint(&out_model_info, "BestOfTheKClass");
-                syncCheckpoint->putSubCheckpoint(&out_model_info, "BestOfTheKClass");
+                // int k = getClassNum(at(model).getName());
+                // model_info.putSubCheckpoint(&out_model_info, "BestOfThe" + convertIntToString(k) + "Class");
+                // syncCheckpoint->putSubCheckpoint(&out_model_info, "BestOfThe" + convertIntToString(k) + "Class");
+                model_info.putSubCheckpoint(&out_model_info, bestOfTheKClass);
+                syncCheckpoint->putSubCheckpoint(&out_model_info, bestOfTheKClass);
             }
 
             int lower_model = getLowerKModel(model);
@@ -3928,12 +3937,16 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
         }
 
         if (is_better_model) {
-            for (auto it = newCheckpoint->begin(); it != newCheckpoint->end(); ++it) {
-                if (it->first.substr(0, bestOfTheKClass.size()) == bestOfTheKClass) {
-                    model_info.put(it->first, it->second);
-                    syncCheckpoint->put(it->first, it->second);
-                }
-            }
+            // for (auto it = newCheckpoint->begin(); it != newCheckpoint->end(); ++it) {
+            //     if (it->first.substr(0, bestOfTheKClass.size()) == bestOfTheKClass) {
+            //         model_info.put(it->first, it->second);
+            //         syncCheckpoint->put(it->first, it->second);
+            //     }
+            // }
+            ModelCheckpoint temporary_checkpoint;
+            newCheckpoint->getSubCheckpoint(&temporary_checkpoint, bestOfTheKClass);
+            model_info.putSubCheckpoint(&temporary_checkpoint, bestOfTheKClass);
+            syncCheckpoint->putSubCheckpoint(&temporary_checkpoint, bestOfTheKClass);
         }
 #endif
         for (int model = 0; model < num_models; ++model)
@@ -4151,6 +4164,10 @@ CandidateModel CandidateModelSet::evaluateMPI(Params &params, PhyloTree* in_tree
     }
 
     // fprintf(stderr, "[Process %d] Done testing!!!\n", MPIHelper::getInstance().getProcessID());
+    
+    for (auto i : model_info) {
+        fprintf(stderr, "PROCESS %d - MODEL CHECKPOINT: Key = %s, Value = %s\n", MPIHelper::getInstance().getProcessID(), i.first.c_str(), i.second.c_str());
+    }
     MPIHelper::getInstance().barrier();
 
     if (best_model_BIC == -1) {
@@ -7215,7 +7232,7 @@ CandidateModel findMixtureComponent(Params &params, IQTree &iqtree, ModelCheckpo
     // model selection
     candidate_models.under_mix_finder = true;
     if (params.mpi_by_model) {
-        best_model = candidate_models.evaluateMPI(params, &iqtree, model_info, models_block, params.num_threads, BRLEN_OPTIMIZE, 
+        best_model = candidate_models.testMPI(params, &iqtree, model_info, models_block, params.num_threads, BRLEN_OPTIMIZE, 
                                        set_name, in_model_name, merge_phase, generate_candidates, skip_all_when_drop);
     } else {
         best_model = candidate_models.test(params, &iqtree, model_info, models_block, params.num_threads, BRLEN_OPTIMIZE,
@@ -7410,7 +7427,7 @@ double runMixtureFinderMain(Params &params, IQTree* &iqtree, ModelCheckpoint &mo
     int n_class = getClassNum(model_str);
     ASSERT(n_class >= 1);
 
-    // overwrite the checkpoint by the best K models
+    // overwrite the checkpoint by the best K modelsxx
     ModelCheckpoint best_model_info;
     model_info.getSubCheckpoint(&best_model_info, model_info.getStructName() + "BestOfThe" + convertIntToString(n_class) + "Class");
     model_info.putSubCheckpoint(&best_model_info, "");

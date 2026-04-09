@@ -344,7 +344,7 @@ public:
     /**
      evaluate all models in parallel by MPI
      */
-    CandidateModel evaluateMPI(Params &params, PhyloTree* in_tree, ModelCheckpoint &model_info,
+    CandidateModel testMPI(Params &params, PhyloTree* in_tree, ModelCheckpoint &model_info,
                      ModelsBlock *models_block, int num_threads, int brlen_type,
                      string set_name = "", string in_model_name = "", bool merge_phase = false, bool generate_candidates = true, bool skip_all_when_drop = false);
     
