@@ -3957,12 +3957,12 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
         } else {
             while (MPIHelper::getInstance().gotMessage()) {
 
-                Checkpoint newCheckpoin;
+                Checkpoint newCheckpoint;
                 int worker = MPIHelper::getInstance().recvCheckpoint(
                     &newCheckpoint, MPI_ANY_SOURCE, MODEL_TEST_TAG
                 );
 
-                if (newCheckpoint->find("stop") != newCheckpoint->end()) {
+                if (newCheckpoint.find("stop") != newCheckpoint.end()) {
                     numStopCkpt++;
                     continue;
                 }
