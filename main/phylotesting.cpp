@@ -3903,9 +3903,9 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
             }
             syncCheckpoint.clear();
         } else {
-            Checkpoint *newCheckpoint = new Checkpoint;
+            Checkpoint newCheckpoint;
             int worker = MPIHelper::getInstance().recvCheckpoint(
-                newCheckpoint, PROC_MASTER, MODEL_TEST_TAG
+                &newCheckpoint, PROC_MASTER, MODEL_TEST_TAG
             );
 
             syncModel(newCheckpoint);
@@ -4003,12 +4003,12 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
 
                 while (true) {
                     if (MPIHelper::getInstance().gotMessage()) {
-                        Checkpoint *newCheckpoint = new Checkpoint;
+                        Checkpoint newCheckpoint;
                         int worker = MPIHelper::getInstance().recvCheckpoint(
-                            newCheckpoint, PROC_MASTER, MODEL_TEST_TAG
+                            &newCheckpoint, PROC_MASTER, MODEL_TEST_TAG
                         );
 
-                        if (newCheckpoint->find("stop") != newCheckpoint->end()) {
+                        if (newCheckpoint.find("stop") != newCheckpoint.end()) {
                             break;
                         }
 
