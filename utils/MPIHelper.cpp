@@ -127,8 +127,12 @@ MPI_Request MPIHelper::sendBufferAsync(char* buf, int len, int dest, int tag) {
     return request;
 }
 
-void MPIHelper::waitBufferSend(MPI_Request& request) {
-    double endTime = getRealTime();
+void MPIHelper::waitBufferSend(MPI_Request* requests, int count) {
+    if (count <= 0 || requests == nullptr) return;
+
+    for (int i = 0; i < count; i++) {
+        MPI_Wait(&requests[i], MPI_STATUS_IGNORE);
+    }
 }
 
 MPI_Request MPIHelper::sendCheckpointAsync(Checkpoint *ckp, char *buffer, int dest, int tag) {

@@ -3927,14 +3927,11 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
     // ------- distribute remaining models -------
     int numStopCkpt = 0;
 
-    #ifdef _IQTREE_MPI
-    MPI_Request *requests = NULL;
-    char *buffer = new char[CHECKPOINT_BUFFER_SIZE];
-    #endif
-
     while (true) {
 
         #ifdef _IQTREE_MPI
+        MPI_Request *requests = NULL;
+        char *buffer = new char[CHECKPOINT_BUFFER_SIZE];
         
         if (MPIHelper::getInstance().isWorker()) {
             // sync checkpoint from master before processing the model
@@ -3971,10 +3968,10 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
             }
 
             if (!syncCheckpoint.empty()) {
-                requests = new MPI_Request[MPIHelper::getInstance().getNumProcesses()];
+                requests = new MPI_Request[MPIHelper::getInstance().getNumProcesses() - 1];
                 
                 for (int i = 1; i < MPIHelper::getInstance().getNumProcesses(); ++i) {
-                    requests[i] = i == 1 ? 
+                    requests[i - 1] = i == 1 ? 
                         MPIHelper::getInstance().sendCheckpointAsync(
                             &syncCheckpoint, buffer, i, MODEL_TEST_TAG
                         ) :
@@ -4060,16 +4057,15 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
         if (requests != NULL) {
             double cur = getRealTime();
             if (MPIHelper::getInstance().isMaster()) {
-                for (int i = 1; i < MPIHelper::getInstance().getNumProcesses(); ++i) {
-                    MPIHelper::getInstance().waitBufferSend(requests[i]);
-                }
+                MPIHelper::getInstance().waitBufferSend(requests, MPIHelper::getInstance().getNumProcesses() - 1);
             } else {
-                MPIHelper::getInstance().waitBufferSend(*requests);
+                MPIHelper::getInstance().waitBufferSend(requests);
             }
             
             delete requests;
             requests = NULL;
         }
+        delete [] buffer;
         #endif
     }
 
@@ -4134,10 +4130,6 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
         delete dna_aln;
     if (prot_aln)
         delete prot_aln;
-
-#ifdef _IQTREE_MPI
-    delete buffer;
-#endif
 
     return at(best_model);
 }

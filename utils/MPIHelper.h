@@ -133,7 +133,7 @@ public:
 
 #ifdef _IQTREE_MPI
     MPI_Request sendBufferAsync(char* buf, int len, int dest, int tag);
-    void waitBufferSend(MPI_Request& request);
+    void waitBufferSend(MPI_Request* requests, int count = 1);
 
     /** wrapper for MPI_Isend a buffer
         @param ckp Checkpoint object to send
