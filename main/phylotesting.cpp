@@ -3691,7 +3691,7 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
     int64_t num_models = size();
 
     Checkpoint syncCheckpoint;
-    string syncChkpointName = "ModelTestSyncCheckpoint";
+    string syncChkpointName = "ModelSyncChkp";
 
     int k = getClassNum(at(0).getName());
     string bestOfTheKClass = "BestOfThe" + convertIntToString(k) + "Class";
