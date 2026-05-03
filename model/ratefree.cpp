@@ -673,5 +673,6 @@ double RateFree::optimizeWithEM() {
 
     delete tree;
     aligned_free(new_prop);
+    phylo_tree->clearAllPartialLH();
     return phylo_tree->computeLikelihood();
 }
