@@ -3660,6 +3660,18 @@ int countPhysicalCPUCores();
 
 void print_stacktrace(ostream &out, unsigned int max_frames = 63);
 
+
+template<class T>
+bool is_sort(T *arr, int left, int right) {
+    for (int i = left; i < right; ++i) {
+        if (arr[i] > arr[i + 1]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 /**
     quicksort template
 */

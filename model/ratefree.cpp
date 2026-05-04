@@ -662,8 +662,9 @@ double RateFree::optimizeWithEM() {
     }
     
     // sort the rates in increasing order
-    if (sorted_rates) {
+    if (sorted_rates && !is_sort(rates, 0, ncategory - 1)) {
         quicksort(rates, 0, ncategory-1, prop);
+        phylo_tree->clearAllPartialLH();
     }
     
     // deattach memory
@@ -673,6 +674,5 @@ double RateFree::optimizeWithEM() {
 
     delete tree;
     aligned_free(new_prop);
-    phylo_tree->clearAllPartialLH();
     return phylo_tree->computeLikelihood();
 }
