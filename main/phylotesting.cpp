@@ -3919,6 +3919,7 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
 
         MPIHelper::getInstance().models->set_shared_memory(num_models, rate_block);
     } else {
+		sort(begin(), end(), compareModel);
         MPIHelper::getInstance().models->set_shared_memory(num_models, 0);
     }
 
