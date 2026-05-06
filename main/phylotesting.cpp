@@ -3782,6 +3782,12 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
             // main call to estimate model parameters
             double cur = getRealTime();
 
+			// fprintf(stderr, 
+			// 	"[Process %d] Evaluating model %s\n", 
+			// 	MPIHelper::getInstance().getProcessID(),
+			// 	at(model).getName().c_str()
+			// );
+
             tree_string = at(model).evaluate(params, model_info, out_model_info,
                                             models_block, num_threads, brlen_type);
             at(model).syncChkPoint = nullptr;
@@ -3804,15 +3810,23 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
             bool is_better_model = updateModel(model, tree_string);
             if (under_mix_finder && is_better_model) {
                 model_info.putSubCheckpoint(&out_model_info, bestOfTheKClass);
+				syncCheckpoint.putSubCheckpoint(&out_model_info, bestOfTheKClass);
             }
 
             int lower_model = getLowerKModel(model);
 
             if (lower_model >= 0 && getScore(lower_model) < at(model).getScore()) {
                 // ignore all +R_k model with higher category
+				// fprintf(stderr, "[Process %d] Ignoring model with higher KModel\n", 
+				// 	MPIHelper::getInstance().getProcessID()
+				// );
                 for (int higher_model = getHigherKModel(model); higher_model != -1;
                     higher_model = getHigherKModel(higher_model)) {
                     MPIHelper::getInstance().models->set_shared_memory(higher_model, DBL_MAX);
+					// fprintf(stderr, "[Process %d] Ignoring model %s\n", 
+					// 	MPIHelper::getInstance().getProcessID(),
+					// 	at(higher_model).getName().c_str()
+					// );
                 }
             }
 
@@ -3915,12 +3929,17 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
 		ModelCheckpoint temporary_checkpoint;
 		newCheckpoint.getSubCheckpoint(&temporary_checkpoint, outModelInfo);
 		model_info.putSubCheckpoint(&temporary_checkpoint, "");
-		if (is_better_model) {
-			model_info.putSubCheckpoint(&temporary_checkpoint, bestOfTheKClass);
-		}
-
 		if (MPIHelper::getInstance().isMaster()) {
 			syncCheckpoint.putSubCheckpoint(&temporary_checkpoint, outModelInfo);
+		}
+
+		if (is_better_model) {
+			temporary_checkpoint.clear();
+			newCheckpoint.getSubCheckpoint(&temporary_checkpoint, bestOfTheKClass);
+			model_info.putSubCheckpoint(&temporary_checkpoint, bestOfTheKClass);
+			if (MPIHelper::getInstance().isMaster()) {
+				syncCheckpoint.putSubCheckpoint(&temporary_checkpoint, bestOfTheKClass);
+			}
 		}
 
         #endif

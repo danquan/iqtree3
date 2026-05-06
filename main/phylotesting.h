@@ -313,8 +313,8 @@ public:
 //                    break;
                 string rate_name = at(model).rate_name.substr(posR, 2) + convertIntToString(cat+1);
                 if (at(next_model).rate_name.find(rate_name) == string::npos)
-                    break;          return next_model;
-      
+                    break;          
+                return next_model;
             }
         }
         return -1;
