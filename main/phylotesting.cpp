@@ -7,6 +7,7 @@
 
 
 
+#include <sstream>
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
@@ -3620,14 +3621,38 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
 
     if (generate_candidates) {
         if (in_model_name.empty()) {
-            generate(params, in_tree->aln, params.model_test_separate_rate, merge_phase);
+#if defined(_NN) || defined(_OLD_NN)
+            if (params.use_nn_model && in_tree->aln->seq_type == SEQ_DNA) {
+                cout << "Using NN" << endl;
+                // todo: to work with multi-threading: pass along the random number streams to the rngs in the stochastic functions
+                // determine substitution model using neural network
+                Alignment *alignment = (in_tree->aln->removeAndFillUpGappySites())->replaceAmbiguousChars(); // todo: here
+                NeuralNetwork nn(alignment);
+                string model_name = nn.doModelInference(); // todo: here
+                string rate_name = "";
+                double alpha = nn.doAlphaInference(); // todo: here
+                if (alpha >= 0) { // +G
+                    rate_name = "+G{" + to_string(alpha) + "}";
+                }
+                string best_model_NN;
+                CKP_RESTORE(best_model_NN);
+                delete alignment;
+                push_back(CandidateModel(model_name, rate_name, in_tree->aln));
+            } else {
+#endif
+                // generate all models the normal way
+                generate(params, in_tree->aln, params.model_test_separate_rate, merge_phase);
+#if defined(_NN) || defined(_OLD_NN)
+            }
             if (do_modelomatic) {
+                ASSERT(!params.use_nn_model);
                 // generate models for protein
                 // adapter coefficient according to Whelan et al. 2015
                 prot_aln = in_tree->aln->convertCodonToAA();
                 int adjusted_df;
                 double adjusted_logl = computeAdapter(in_tree->aln, prot_aln, adjusted_df);
-                cout << "Adjusted LnL: " << adjusted_logl << "  df: " << adjusted_df << endl;
+                if (set_name.empty())
+                    cout << "Adjusted LnL: " << adjusted_logl << "  df: " << adjusted_df << endl;
                 size_t start = size();
                 generate(params, prot_aln, params.model_test_separate_rate, merge_phase);
                 size_t i;
@@ -3635,7 +3660,7 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
                     at(i).logl = adjusted_logl;
                     at(i).df = adjusted_df;
                 }
-                
+
                 // generate models for DNA
                 dna_aln = in_tree->aln->convertCodonToDNA();
                 start = size();
@@ -3644,6 +3669,7 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
                     at(i).setFlag(MF_SAMPLE_SIZE_TRIPLE);
                 }
             }
+#endif
         } else {
             push_back(CandidateModel(in_model_name, "", in_tree->aln));
         }
@@ -3692,6 +3718,10 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
 
     Checkpoint syncCheckpoint;
     string syncChkpointName = "ModelSyncChkp";
+
+	vector<int> modelIdx(num_models);
+	for (int i = 0; i < num_models; i++)
+		modelIdx[i] = i;
 
     int k = getClassNum(at(0).getName());
     string bestOfTheKClass = "BestOfThe" + convertIntToString(k) + "Class";
@@ -3756,6 +3786,13 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
             at(model).syncChkPoint = nullptr;
             at(model).computeICScores();
             at(model).setFlag(MF_DONE);
+
+			// fprintf(stderr, 
+			// 	"[Process %d] Evaluated model %s in %.5f seconds\n", 
+			// 	MPIHelper::getInstance().getProcessID(),
+			// 	at(model).getName().c_str(),
+			// 	getRealTime() - cur
+			// );
 
             MPIHelper::getInstance().models->set_shared_memory(model, at(model).getScore());
 
@@ -3919,7 +3956,44 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
 
         MPIHelper::getInstance().models->set_shared_memory(num_models, rate_block);
     } else {
-		sort(begin(), end(), compareModel);
+		if (MPIHelper::getInstance().isMaster()) {
+			sort(modelIdx.begin(), modelIdx.end(), [&](const int &m1, const int &m2) {
+				size_t pos1, pos2;
+				const char *rates[] = {"+R", "*R", "+H", "*H"};
+				for (int i = 0; i < sizeof(rates)/sizeof(char*); i++) {
+				pos1 = at(m1).rate_name.find(rates[i]);
+				pos2 = at(m2).rate_name.find(rates[i]);
+				if ((pos1 == string::npos) != (pos2 == string::npos)) {
+					return pos1 == string::npos;
+				} else if (pos1 != string::npos) {
+					int cat1 = convert_int(at(m1).rate_name.substr(pos1 + 2).c_str());
+					int cat2 = convert_int(at(m2).rate_name.substr(pos2 + 2).c_str());
+					return cat1 < cat2;
+				}
+				}
+				return false;
+			});
+
+			stringstream ss; 
+			for (int i = 0; i < modelIdx.size(); i++) {
+				ss << modelIdx[i] << " ";
+			}
+
+			string msg = ss.str();
+
+			for (int i = 1; i < MPIHelper::getInstance().getNumProcesses(); ++i) {
+				MPIHelper::getInstance().sendString(msg, i, MODEL_TEST_TAG);
+			}
+		} else {
+			string msg;
+			MPIHelper::getInstance().recvString(msg, PROC_MASTER, MODEL_TEST_TAG);
+			
+			stringstream ss(msg);
+			for (int i = 0; i < modelIdx.size(); ++i) {
+				ss >> modelIdx[i];
+			}
+		}
+
         MPIHelper::getInstance().models->set_shared_memory(num_models, 0);
     }
 
@@ -4025,7 +4099,7 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
             }
         } else {
             // evaluate this model
-            processModel(model);
+            processModel(modelIdx[model]);
         }
 
         #ifdef _IQTREE_MPI

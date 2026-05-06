@@ -320,26 +320,6 @@ public:
         return -1;
     }
 
-    /**
-    * compare two models by rate, used for sorting
-    */
-    static bool compareModel(const CandidateModel &m1, const CandidateModel &m2) {
-        size_t pos1, pos2;
-        const char *rates[] = {"+R", "*R", "+H", "*H"};
-        for (int i = 0; i < sizeof(rates)/sizeof(char*); i++) {
-          pos1 = m1.rate_name.find(rates[i]);
-          pos2 = m2.rate_name.find(rates[i]);
-          if ((pos1 == string::npos) != (pos2 == string::npos)) {
-            return pos1 == string::npos;
-          } else if (pos1 != string::npos) {
-            int cat1 = convert_int(m1.rate_name.substr(pos1 + 2).c_str());
-            int cat2 = convert_int(m2.rate_name.substr(pos2 + 2).c_str());
-            return cat1 < cat2;
-          }
-        }
-        return false;
-    }
-
     /** get the next model to evaluate in parallel */
     int64_t getNextModel();
 
