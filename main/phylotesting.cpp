@@ -3725,6 +3725,7 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
 
     int k = getClassNum(at(0).getName());
     string bestOfTheKClass = "BestOfThe" + convertIntToString(k) + "Class";
+	string outModelInfo = "OutputModelInfo";
     MPIHelper::getInstance().models = new MPI_SharedWindow(num_models + 1);
     MPIHelper::getInstance().barrier();
 
@@ -3798,11 +3799,11 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
 
             // BQM 2024-06-22: save checkpoint for starting values of next model
             model_info.putSubCheckpoint(&out_model_info, "");
+			syncCheckpoint.putSubCheckpoint(&out_model_info, outModelInfo);
 
             bool is_better_model = updateModel(model, tree_string);
             if (under_mix_finder && is_better_model) {
                 model_info.putSubCheckpoint(&out_model_info, bestOfTheKClass);
-                syncCheckpoint.putSubCheckpoint(&out_model_info, bestOfTheKClass);
             }
 
             int lower_model = getLowerKModel(model);
@@ -3911,12 +3912,17 @@ CandidateModel CandidateModelSet::testMPI(Params &params, PhyloTree* in_tree, Mo
             }
         }
 
-        if (is_better_model) {
-            ModelCheckpoint temporary_checkpoint;
-            newCheckpoint.getSubCheckpoint(&temporary_checkpoint, bestOfTheKClass);
-            model_info.putSubCheckpoint(&temporary_checkpoint, bestOfTheKClass);
-            syncCheckpoint.putSubCheckpoint(&temporary_checkpoint, bestOfTheKClass);
-        }
+		ModelCheckpoint temporary_checkpoint;
+		newCheckpoint.getSubCheckpoint(&temporary_checkpoint, outModelInfo);
+		model_info.putSubCheckpoint(&temporary_checkpoint, "");
+		if (is_better_model) {
+			model_info.putSubCheckpoint(&temporary_checkpoint, bestOfTheKClass);
+		}
+
+		if (MPIHelper::getInstance().isMaster()) {
+			syncCheckpoint.putSubCheckpoint(&temporary_checkpoint, outModelInfo);
+		}
+
         #endif
         for (int model = 0; model < num_models; ++model)
             if (at(model).getScore() != DBL_MAX) {
