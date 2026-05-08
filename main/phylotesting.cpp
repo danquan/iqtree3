@@ -3310,9 +3310,13 @@ CandidateModel CandidateModelSet::test(Params &params, PhyloTree* in_tree, Model
         }
 	}
 
-    for (auto i : model_info) {
-        fprintf(stderr, "PROCESS %d - MODEL CHECKPOINT: Key = %s, Value = %s\n", MPIHelper::getInstance().getProcessID(), i.first.c_str(), i.second.c_str());
-    }
+    // for (auto i : model_info) {
+    //     fprintf(stderr, "PROCESS %d - MODEL CHECKPOINT: Key = %s, Value = %s\n", 
+	// 		MPIHelper::getInstance().getProcessID(), 
+	// 		i.first.c_str(), 
+	// 		i.second.c_str()
+	// 	);
+    // }
     ASSERT(model_scores.size() == size());
 
     if (best_model_BIC == -1) {
