@@ -2519,20 +2519,22 @@ double IQTree::doTreeSearch() {
         cout << "CHECKPOINT: " << stop_rule.getCurIt() << " search iterations restored" << endl;
     }
     
-    double cputime_init_ufboot = getCPUTime() - cputime_init_ufboot_start;
-    double realtime_init_ufboot = getRealTime() - realtime_init_ufboot_start;
-    // cout << "CPU time for Initializing Candidate Tree Set: " << cputime_init_ufboot << " seconds (" << convert_time(cputime_init_ufboot) << ")" << endl;
-    // cout << "Wall-clock time for Initializing Candidate Tree Set: " << realtime_init_ufboot << " seconds (" << convert_time(realtime_init_ufboot) << ")" << endl;
-    fprintf(stderr, 
-        "CPU time for Initializing Candidate Tree Set: %.2f seconds (%s)\n", 
-        cputime_init_ufboot, 
-        convert_time(cputime_init_ufboot).c_str()
-    );
-    fprintf(stderr, 
-        "Wall-clock time for Initializing Candidate Tree Set: %.2f seconds (%s)\n", 
-        realtime_init_ufboot, 
-        convert_time(realtime_init_ufboot).c_str()
-    );
+    #ifdef _IQTREE_MPI
+        double cputime_init_ufboot = getCPUTime() - cputime_init_ufboot_start;
+        double realtime_init_ufboot = getRealTime() - realtime_init_ufboot_start;
+        fprintf(stderr, 
+            "[Process %d] CPU time for Initializing Candidate Tree Set: %.2f seconds (%s)\n", 
+            MPIHelper::getInstance().getProcessID(),
+            cputime_init_ufboot, 
+            convert_time(cputime_init_ufboot).c_str()
+        );
+        fprintf(stderr, 
+            "[Process %d] Wall-clock time for Initializing Candidate Tree Set: %.2f seconds (%s)\n", 
+            MPIHelper::getInstance().getProcessID(),
+            realtime_init_ufboot, 
+            convert_time(realtime_init_ufboot).c_str()
+        );
+    #endif
 
     searchinfo.curPerStrength = params->initPS;
     double cur_correlation = 0.0;
@@ -2702,20 +2704,23 @@ double IQTree::doTreeSearch() {
 
     }
 
-    double cputime_search_ufboot = getCPUTime() - cputime_search_ufboot_start;
-    double realtime_search_ufboot = getRealTime() - realtime_search_ufboot_start;
-    // cout << "CPU time for Tree Search: " << cputime_search_ufboot << " seconds (" << convert_time(cputime_search_ufboot) << ")" << endl;
-    // cout << "Wall-clock time for Tree Search: " << realtime_search_ufboot << " seconds (" << convert_time(realtime_search_ufboot) << ")" << endl;
-    fprintf(stderr, 
-        "CPU time for Tree Search: %.2f seconds (%s)\n", 
-        cputime_search_ufboot, 
-        convert_time(cputime_search_ufboot).c_str()
-    );
-    fprintf(stderr,
-        "Wall-clock time for Tree Search: %.2f seconds (%s)\n", 
-        realtime_search_ufboot, 
-        convert_time(realtime_search_ufboot).c_str()
-    );
+    #ifdef _IQTREE_MPI
+        double cputime_search_ufboot = getCPUTime() - cputime_search_ufboot_start;
+        double realtime_search_ufboot = getRealTime() - realtime_search_ufboot_start;
+
+        fprintf(stderr, 
+            "[Process %d] CPU time for Tree Search: %.2f seconds (%s)\n", 
+            MPIHelper::getInstance().getProcessID(),
+            cputime_search_ufboot, 
+            convert_time(cputime_search_ufboot).c_str()
+        );
+        fprintf(stderr,
+            "[Process %d] Wall-clock time for Tree Search: %.2f seconds (%s)\n", 
+            MPIHelper::getInstance().getProcessID(),
+            realtime_search_ufboot, 
+            convert_time(realtime_search_ufboot).c_str()
+        );
+    #endif
 
     if (!early_stop) {
         sendStopMessage();
@@ -2737,20 +2742,22 @@ double IQTree::doTreeSearch() {
         refineBootTrees();
     }
 
-    double cputime_refine_ufboot = getCPUTime() - cputime_refine_ufboot_start;
-    double realtime_refine_ufboot = getRealTime() - realtime_refine_ufboot_start;
-    // cout << "CPU time for Refining Boot Trees: " << cputime_refine_ufboot << " seconds (" << convert_time(cputime_refine_ufboot) << ")" << endl;
-    // cout << "Wall-clock time for Refining Boot Trees: " << realtime_refine_ufboot << " seconds (" << convert_time(realtime_refine_ufboot) << ")" << endl;
-    fprintf(stderr, 
-        "CPU time for Refining Boot Trees: %.2f seconds (%s)\n", 
-        cputime_refine_ufboot, 
-        convert_time(cputime_refine_ufboot).c_str()
-    );
-    fprintf(stderr, 
-        "Wall-clock time for Refining Boot Trees: %.2f seconds (%s)\n", 
-        realtime_refine_ufboot, 
-        convert_time(realtime_refine_ufboot).c_str()
-    );
+    #ifdef _IQTREE_MPI
+        double cputime_refine_ufboot = getCPUTime() - cputime_refine_ufboot_start;
+        double realtime_refine_ufboot = getRealTime() - realtime_refine_ufboot_start;
+        fprintf(stderr, 
+            "[Process %d] CPU time for Refining Boot Trees: %.2f seconds (%s)\n", 
+            MPIHelper::getInstance().getProcessID(),
+            cputime_refine_ufboot, 
+            convert_time(cputime_refine_ufboot).c_str()
+        );
+        fprintf(stderr, 
+            "[Process %d] Wall-clock time for Refining Boot Trees: %.2f seconds (%s)\n", 
+            MPIHelper::getInstance().getProcessID(),
+            realtime_refine_ufboot, 
+            convert_time(realtime_refine_ufboot).c_str()
+        );
+    #endif
 
     readTreeString(candidateTrees.getBestTreeStrings()[0]);
 
